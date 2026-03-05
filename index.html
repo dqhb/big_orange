@@ -15,241 +15,243 @@
         }
 
         #top-bar { display: flex; justify-content: space-between; align-items: flex-start; text-shadow: 0 0 10px rgba(255,255,255,0.5); }
-        h1 { margin: 0; font-size: 2.5rem; color: #38bdf8; letter-spacing: 2px;}
-        #level-display { font-size: 1.5rem; color: #facc15; }
+        h1 { margin: 0; font-size: 2.5rem; color: #38bdf8; letter-spacing: 2px; text-shadow: 0 0 15px #38bdf8;}
+        #level-display { font-size: 1.5rem; color: #facc15; text-shadow: 0 0 10px #facc15;}
 
-        #crosshair {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            width: 10px; height: 10px; border: 2px solid white; border-radius: 50%; opacity: 0.7;
-        }
-
-        #menu {
+        #menu, #victory {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 23, 42, 0.9); display: flex; flex-direction: column;
             justify-content: center; align-items: center; pointer-events: auto; z-index: 10;
         }
 
-        #menu h2 { font-size: 4rem; color: #38bdf8; margin: 0 0 20px 0; text-shadow: 0 0 20px #38bdf8; }
-        #menu p { color: #94a3b8; font-size: 1.2rem; margin-bottom: 30px; letter-spacing: 1px; }
+        #menu h2, #victory h2 { font-size: 4rem; color: #38bdf8; margin: 0 0 20px 0; text-shadow: 0 0 20px #38bdf8; }
+        #victory h2 { color: #4ade80; text-shadow: 0 0 30px #4ade80; }
+        p { color: #94a3b8; font-size: 1.2rem; margin-bottom: 30px; letter-spacing: 1px; }
         .controls-text { color: #fff; font-weight: bold; }
 
-        #start-btn {
+        button {
             background: #38bdf8; color: #0f172a; border: none; padding: 15px 40px;
             font-size: 1.5rem; font-weight: bold; border-radius: 8px; cursor: pointer;
             text-transform: uppercase; box-shadow: 0 0 15px #38bdf8; transition: transform 0.1s;
         }
-        #start-btn:hover { transform: scale(1.05); background: #7dd3fc; }
+        button:hover { transform: scale(1.05); background: #7dd3fc; }
         
-        #victory { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 20; justify-content: center; align-items: center; flex-direction: column; }
-        #victory h2 { font-size: 5rem; color: #4ade80; text-shadow: 0 0 30px #4ade80; margin: 0; }
+        #victory { display: none; z-index: 20; }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
         <div id="top-bar">
-            <h1>Neon Parkour</h1>
+            <h1>Neon Run</h1>
             <div id="level-display">Level 1 / 100</div>
         </div>
-        <div id="crosshair"></div>
     </div>
 
     <div id="menu">
         <h2>READY TO JUMP?</h2>
-        <p><span class="controls-text">WASD</span> to Move | <span class="controls-text">SPACE</span> to Jump | <span class="controls-text">MOUSE</span> to Look</p>
-        <button id="start-btn">CLICK TO START</button>
+        <p><span class="controls-text">A / D</span> to Move | <span class="controls-text">W / SPACE</span> to Jump</p>
+        <button id="start-btn">PLAY</button>
     </div>
 
     <div id="victory">
-        <h2>YOU BEAT ALL 100 LEVELS!</h2>
-        <p>You are a parkour master.</p>
+        <h2>100 LEVELS CLEARED!</h2>
+        <p>You are a 2D platforming master.</p>
+        <button onclick="location.reload()">PLAY AGAIN</button>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
+    <canvas id="gameCanvas"></canvas>
 
     <script>
-        const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x0f172a, 0.015);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-
-        const light = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(light);
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        dirLight.position.set(10, 20, 10);
-        scene.add(dirLight);
-
-        const controls = new THREE.PointerLockControls(camera, document.body);
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
         const menu = document.getElementById('menu');
         const startBtn = document.getElementById('start-btn');
         const levelUI = document.getElementById('level-display');
         const victoryScreen = document.getElementById('victory');
 
-        startBtn.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => menu.style.display = 'none');
-        controls.addEventListener('unlock', () => { if(currentLevel <= 100) menu.style.display = 'flex'; });
+        let isPlaying = false;
 
-        // Materials
-        const platMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.1, metalness: 0.2 });
-        const startMat = new THREE.MeshStandardMaterial({ color: 0xfacc15 });
-        const goalMat = new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x4ade80, emissiveIntensity: 0.5 });
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        startBtn.addEventListener('click', () => {
+            menu.style.display = 'none';
+            isPlaying = true;
+            buildLevel(currentLevel);
+            gameLoop();
+        });
+
+        const keys = { a: false, d: false, w: false, space: false };
+        window.addEventListener('keydown', e => { 
+            let key = e.key.toLowerCase();
+            if(keys.hasOwnProperty(key)) keys[key] = true; 
+            if(e.code === 'Space') keys.space = true; 
+        });
+        window.addEventListener('keyup', e => { 
+            let key = e.key.toLowerCase();
+            if(keys.hasOwnProperty(key)) keys[key] = false; 
+            if(e.code === 'Space') keys.space = false; 
+        });
 
         let currentLevel = 1;
         let platforms = [];
-        let goalBox = null;
+        let cameraX = 0;
+
+        const player = {
+            x: 0, y: 0, w: 24, h: 24,
+            vx: 0, vy: 0,
+            speed: 0.8, maxSpeed: 6, friction: 0.85,
+            jumpPower: -12, gravity: 0.6,
+            grounded: false, color: '#ec4899'
+        };
 
         function buildLevel(level) {
-            // Cleanup old level
-            platforms.forEach(p => scene.remove(p.mesh));
             platforms = [];
-            if (goalBox) scene.remove(goalBox.mesh);
+            
+            // Start platform
+            platforms.push({ x: 100, y: canvas.height / 2 + 100, w: 150, h: 20, type: 'start', color: '#facc15' });
+            
+            player.x = 150;
+            player.y = canvas.height / 2;
+            player.vx = 0;
+            player.vy = 0;
 
             // Difficulty scaling
-            const numPlatforms = 4 + Math.floor(level * 0.4); 
-            const gapSize = Math.min(6 + (level * 0.08), 14); 
-            let platSize = Math.max(5 - (level * 0.03), 1.5); 
+            const numJumps = 3 + Math.floor(level * 0.3);
+            let currentX = 250;
+            let currentY = canvas.height / 2 + 100;
 
-            let currentX = 0;
-            let currentY = 0;
-            let currentZ = 0;
+            for (let i = 0; i < numJumps; i++) {
+                // Gaps get wider, platforms get smaller as level increases
+                let gapX = 80 + (level * 2.5) + (Math.random() * 60);
+                let gapY = (Math.random() * 160) - 80; 
+                let platW = Math.max(30, 120 - (level * 0.8));
 
-            // Start platform
-            createPlatform(currentX, currentY - 2, currentZ, 6, 1, 6, startMat);
+                currentX += gapX;
+                currentY += gapY;
 
-            // Procedural platforms
-            for (let i = 0; i < numPlatforms; i++) {
-                // Randomize direction slightly
-                const angle = (Math.random() - 0.5) * Math.PI; 
-                currentX += Math.sin(angle) * gapSize;
-                currentZ -= Math.cos(angle) * gapSize;
-                currentY += (Math.random() * 3) - 1; // Slight elevation changes
+                // Keep platforms roughly centered on screen vertically
+                if (currentY > canvas.height - 100) currentY = canvas.height - 100;
+                if (currentY < 200) currentY = 200;
 
-                createPlatform(currentX, currentY - 2, currentZ, platSize, 1, platSize, platMat);
+                platforms.push({ x: currentX, y: currentY, w: platW, h: 20, type: 'normal', color: '#38bdf8' });
+                currentX += platW;
             }
 
             // Goal platform
-            currentZ -= gapSize;
-            createPlatform(currentX, currentY - 2, currentZ, 5, 1, 5, goalMat, true);
+            let finalGap = 100 + (level * 2);
+            platforms.push({ x: currentX + finalGap, y: currentY, w: 100, h: 20, type: 'goal', color: '#4ade80' });
 
-            // Reset Player
-            velocity.set(0,0,0);
-            camera.position.set(0, 0, 0);
             levelUI.innerText = `Level ${level} / 100`;
         }
 
-        function createPlatform(x, y, z, w, h, d, material, isGoal = false) {
-            const geo = new THREE.BoxGeometry(w, h, d);
-            const mesh = new THREE.Mesh(geo, material);
-            mesh.position.set(x, y, z);
-            scene.add(mesh);
-
-            const box = {
-                mesh: mesh,
-                minX: x - w/2, maxX: x + w/2,
-                minY: y - h/2, maxY: y + h/2,
-                minZ: z - d/2, maxZ: z + d/2,
-                isGoal: isGoal
-            };
-
-            if (isGoal) goalBox = box;
-            platforms.push(box);
+        function isColliding(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.w &&
+                   rect1.x + rect1.w > rect2.x &&
+                   rect1.y < rect2.y + rect2.h &&
+                   rect1.y + rect1.h > rect2.y;
         }
 
-        // Physics & Controls
-        const keys = { w: false, a: false, s: false, d: false, space: false };
-        window.addEventListener('keydown', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; if(e.code==='Space') keys.space = true; });
-        window.addEventListener('keyup', e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; if(e.code==='Space') keys.space = false; });
+        function updatePhysics() {
+            // Horizontal Movement
+            if (keys.a) player.vx -= player.speed;
+            if (keys.d) player.vx += player.speed;
+            player.vx *= player.friction;
+            
+            // Clamp speed
+            player.vx = Math.max(-player.maxSpeed, Math.min(player.maxSpeed, player.vx));
+            player.x += player.vx;
 
-        const velocity = new THREE.Vector3();
-        const direction = new THREE.Vector3();
-        let canJump = false;
-        const playerHeight = 2;
-        const speed = 40.0;
-        const mass = 100.0;
-        let prevTime = performance.now();
-
-        buildLevel(currentLevel);
-
-        function animate() {
-            requestAnimationFrame(animate);
-
-            const time = performance.now();
-            if (controls.isLocked === true) {
-                const delta = (time - prevTime) / 1000;
-
-                velocity.x -= velocity.x * 10.0 * delta;
-                velocity.z -= velocity.z * 10.0 * delta;
-                velocity.y -= 35.0 * mass * delta; // Gravity
-
-                direction.z = Number(keys.w) - Number(keys.s);
-                direction.x = Number(keys.d) - Number(keys.a);
-                direction.normalize();
-
-                if (keys.w || keys.s) velocity.z -= direction.z * speed * delta;
-                if (keys.a || keys.d) velocity.x -= direction.x * speed * delta;
-
-                // Move X and Z
-                controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
-                camera.position.y += velocity.y * delta;
-
-                // Custom AABB Collision detection
-                let isOnGround = false;
-                const pX = camera.position.x;
-                const pY = camera.position.y - playerHeight; 
-                const pZ = camera.position.z;
-                const radius = 0.5; // player thickness
-
-                for (let p of platforms) {
-                    // Check if player is within X and Z bounds of the platform
-                    if (pX + radius > p.minX && pX - radius < p.maxX &&
-                        pZ + radius > p.minZ && pZ - radius < p.maxZ) {
-                        
-                        // Check Y collision (falling onto the platform)
-                        if (pY <= p.maxY && pY >= p.minY - 0.5 && velocity.y <= 0) {
-                            camera.position.y = p.maxY + playerHeight;
-                            velocity.y = 0;
-                            isOnGround = true;
-                            canJump = true;
-
-                            if (p.isGoal) {
-                                currentLevel++;
-                                if (currentLevel > 100) {
-                                    controls.unlock();
-                                    victoryScreen.style.display = 'flex';
-                                } else {
-                                    buildLevel(currentLevel);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (isOnGround && keys.space) {
-                    velocity.y = 800; // Jump height
-                    canJump = false;
-                }
-
-                // Death pit reset
-                if (camera.position.y < -30) {
-                    buildLevel(currentLevel); // Reset to start of current level
+            // Horizontal Collisions
+            for (let p of platforms) {
+                if (isColliding(player, p)) {
+                    if (player.vx > 0) player.x = p.x - player.w; // Hit right side
+                    else if (player.vx < 0) player.x = p.x + p.w; // Hit left side
+                    player.vx = 0;
                 }
             }
-            prevTime = time;
-            renderer.render(scene, camera);
+
+            // Vertical Movement
+            player.vy += player.gravity;
+            player.y += player.vy;
+            player.grounded = false;
+
+            // Vertical Collisions
+            for (let p of platforms) {
+                if (isColliding(player, p)) {
+                    if (player.vy > 0) { // Falling down onto platform
+                        player.y = p.y - player.h;
+                        player.vy = 0;
+                        player.grounded = true;
+                        
+                        if (p.type === 'goal') {
+                            currentLevel++;
+                            if (currentLevel > 100) {
+                                isPlaying = false;
+                                victoryScreen.style.display = 'flex';
+                            } else {
+                                buildLevel(currentLevel);
+                            }
+                            return; // Stop processing physics for this frame to prevent glitches on level load
+                        }
+                    } else if (player.vy < 0) { // Hitting head on bottom of platform
+                        player.y = p.y + p.h;
+                        player.vy = 0;
+                    }
+                }
+            }
+
+            // Jumping
+            if (player.grounded && (keys.w || keys.space)) {
+                player.vy = player.jumpPower;
+                player.grounded = false;
+            }
+
+            // Death / Fall off screen
+            if (player.y > canvas.height + 200) {
+                buildLevel(currentLevel); // Restart current level
+            }
         }
 
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
+        function draw() {
+            // Clear screen
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        animate();
+            // Smooth Camera follow
+            let targetCameraX = player.x - canvas.width / 3;
+            cameraX += (targetCameraX - cameraX) * 0.1;
+
+            // Draw Platforms
+            for (let p of platforms) {
+                ctx.fillStyle = p.color;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = p.color;
+                ctx.fillRect(p.x - cameraX, p.y, p.w, p.h);
+            }
+
+            // Draw Player
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = player.color;
+            ctx.fillRect(player.x - cameraX, player.y, player.w, player.h);
+
+            // Reset shadow for performance
+            ctx.shadowBlur = 0;
+        }
+
+        function gameLoop() {
+            if (!isPlaying) return;
+            updatePhysics();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
     </script>
 </body>
 </html>

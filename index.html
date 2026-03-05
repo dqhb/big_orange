@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>racer</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Segoe UI', Tahoma, sans-serif; color: white; user-select: none; }
+        canvas { display: block; }
+        
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; display: flex; flex-direction: column; justify-content: space-between;
+            padding: 30px; box-sizing: border-box; text-transform: uppercase;
+        }
+
+        #top-bar { display: flex; justify-content: space-between; align-items: flex-start; }
+        
+        .panel { background: rgba(10, 10, 20, 0.8); border: 2px solid #ec4899; padding: 15px 25px; border-radius: 8px; box-shadow: 0 0 15px rgba(236, 72, 153, 0.5); text-shadow: 0 0 5px #ec4899; }
+        
+        h1 { margin: 0 0 5px 0; font-size: 2rem; color: #fbcfe8; letter-spacing: 2px;}
+        p { margin: 0; color: #f472b6; font-size: 0.9rem; letter-spacing: 1px;}
+
+        #speedometer { font-size: 3.5rem; font-weight: bold; color: #38bdf8; text-shadow: 0 0 10px #38bdf8; text-align: right; }
+        #speed-label { font-size: 1rem; color: #bae6fd; }
+
+        #controls { align-self: center; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 20px; border: 1px solid #333; color: #888; font-size: 0.8rem; letter-spacing: 2px;}
+        .highlight { color: #fff; font-weight: bold; }
+        
+        #drift-alert { 
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 3rem; color: #facc15; font-weight: bold; font-style: italic;
+            text-shadow: 0 0 20px #f59e0b; opacity: 0; transition: opacity 0.2s;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <div id="top-bar">
+            <div class="panel">
+                <h1>Neon Drift</h1>
+                <p>Distance: <span id="distance" style="color:#fff;">0</span> m</p>
+            </div>
+            <div class="panel" style="border-color: #38bdf8; box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);">
+                <div id="speedometer">0</div>
+                <div id="speed-label">KM/H</div>
+            </div>
+        </div>
+        
+        <div id="drift-alert">DRIFTING!</div>
+
+        <div id="controls">
+            <span class="highlight">W</span> Accelerate | <span class="highlight">A/D</span> Steer | <span class="highlight">S</span> Brake | <span class="highlight">SPACE</span> Drift
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // --- 1. THREE.JS SETUP ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050510, 0.008); // Synthwave dark purple fog
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(scene.fog.color);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xff00aa, 1);
+        dirLight.position.set(-100, 100, -100);
+        scene.add(dirLight);
+        const blueLight = new THREE.DirectionalLight(0x00aaff, 0.8);
+        blueLight.position.set(100, 50, 100);
+        scene.add(blueLight);
+
+        // --- 2. BUILD THE F1 CAR ---
+        const carGroup = new THREE.Group();
+        scene.add(carGroup);
+
+        // Materials
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xec4899, roughness: 0.2, metalness: 0.8 }); // Pink Chrome
+        const blackMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+        const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x333333 });
+        const glowMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 }); // Cyan neon
+
+        // Chassis
+        const chassisGeo = new THREE.BoxGeometry(1.2, 0.5, 4.5);
+        const chassis = new THREE.Mesh(chassisGeo, bodyMat);
+        chassis.position.y = 0.4;
+        carGroup.add(chassis);
+
+        // Nose
+        const noseGeo = new THREE.BoxGeometry(0.8, 0.3, 1.8);
+        const nose = new THREE.Mesh(noseGeo, bodyMat);
+        nose.position.set(0, 0.25, -3.1);
+        carGroup.add(nose);
+
+        // Front Wing
+        const fWingGeo = new THREE.BoxGeometry(2.4, 0.1, 0.6);
+        const fWing = new THREE.Mesh(fWingGeo, whiteMat);
+        fWing.position.set(0, 0.15, -3.8);
+        carGroup.add(fWing);
+
+        // Rear Wing
+        const rWingGeo = new THREE.BoxGeometry(2.2, 0.1, 0.8);
+        const rWing = new THREE.Mesh(rWingGeo, whiteMat);
+        rWing.position.set(0, 1.1, 1.8);
+        carGroup.add(rWing);
+        const rWingSupport = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.4), blackMat);
+        rWingSupport.position.set(0, 0.7, 1.8);
+        carGroup.add(rWingSupport);
+
+        // Cockpit
+        const cockpit = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 1.2), blackMat);
+        cockpit.position.set(0, 0.7, 0.2);
+        carGroup.add(cockpit);
+
+        // Wheels
+        const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+        wheelGeo.rotateZ(Math.PI / 2);
+        const wheels = [];
+        const wheelPositions = [
+            [-1.1, 0.4, -2.5], [1.1, 0.4, -2.5], // Front
+            [-1.1, 0.4, 1.5], [1.1, 0.4, 1.5]    // Rear
+        ];
+        wheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeo, blackMat);
+            wheel.position.set(...pos);
+            carGroup.add(wheel);
+            wheels.push(wheel);
+            // Neon rim
+            const rim = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.05, 8, 16), glowMat);
+            rim.rotateY(Math.PI / 2);
+            rim.position.set(pos[0] > 0 ? 0.16 : -0.16, 0, 0);
+            wheel.add(rim);
+        });
+
+        // --- 3. THE INFINITE TRACK ---
+        // We simulate infinite movement by moving the track lines towards the camera, 
+        // while the car stays relatively centered on the Z axis.
+        
+        // Ground Plane
+        const groundGeo = new THREE.PlaneGeometry(200, 200);
+        const groundMat = new THREE.MeshStandardMaterial({ color: 0x050510, roughness: 1 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        // Grid / Track Lines
+        const lines = [];
+        const lineGeo = new THREE.BoxGeometry(0.2, 0.1, 10);
+        const lineMat = new THREE.MeshBasicMaterial({ color: 0xec4899 }); // Pink lines
+        
+        for (let i = 0; i < 40; i++) {
+            const lineL = new THREE.Mesh(lineGeo, lineMat);
+            lineL.position.set(-6, 0, -i * 10);
+            scene.add(lineL);
+            lines.push(lineL);
+
+            const lineR = new THREE.Mesh(lineGeo, lineMat);
+            lineR.position.set(6, 0, -i * 10);
+            scene.add(lineR);
+            lines.push(lineR);
+        }
+
+        // --- 4. PARTICLE SYSTEM (SKID MARKS) ---
+        const particles = [];
+        const particleGeo = new THREE.PlaneGeometry(0.4, 0.4);
+        const particleMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+        
+        function spawnSkidMark(x, z) {
+            const p = new THREE.Mesh(particleGeo, particleMat);
+            p.rotation.x = -Math.PI / 2;
+            p.position.set(x, 0.05, z);
+            scene.add(p);
+            particles.push({ mesh: p, life: 1.0 });
+        }
+
+        // --- 5. PHYSICS & CONTROLS ---
+        const keys = { w: false, a: false, s: false, d: false, space: false };
+        window.addEventListener('keydown', e => { 
+            if(e.code === 'KeyW') keys.w = true;
+            if(e.code === 'KeyA') keys.a = true;
+            if(e.code === 'KeyS') keys.s = true;
+            if(e.code === 'KeyD') keys.d = true;
+            if(e.code === 'Space') keys.space = true;
+        });
+        window.addEventListener('keyup', e => {
+            if(e.code === 'KeyW') keys.w = false;
+            if(e.code === 'KeyA') keys.a = false;
+            if(e.code === 'KeyS') keys.s = false;
+            if(e.code === 'KeyD') keys.d = false;
+            if(e.code === 'Space') keys.space = false;
+        });
+
+        let speed = 0;
+        let maxSpeed = 3.0;
+        let acceleration = 0.02;
+        let friction = 0.008;
+        let steeringAngle = 0;
+        let carRotation = 0; // Visual rotation
+        
+        let distanceTraveled = 0;
+        
+        const uiSpeed = document.getElementById('speedometer');
+        const uiDist = document.getElementById('distance');
+        const driftAlert = document.getElementById('drift-alert');
+
+        // --- 6. MAIN LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Acceleration & Braking
+            if (keys.w) speed += acceleration;
+            else if (keys.s) speed -= acceleration * 1.5; // Stronger brakes
+            else speed -= friction; // Coasting
+
+            // Drift mechanic modifiers
+            let currentTurnSpeed = 0.03;
+            let grip = 0.1; // How fast the car aligns with its visual rotation
+
+            if (keys.space && speed > 0.5) {
+                // Drifting!
+                currentTurnSpeed = 0.06; // Turn faster
+                grip = 0.02; // Slide more
+                speed -= friction * 2; // Lose speed while drifting
+                driftAlert.style.opacity = 1;
+
+                // Spawn skid marks at rear wheels
+                spawnSkidMark(carGroup.position.x - 1.1, carGroup.position.z + 1.5);
+                spawnSkidMark(carGroup.position.x + 1.1, carGroup.position.z + 1.5);
+            } else {
+                driftAlert.style.opacity = 0;
+            }
+
+            // Clamping speed
+            speed = Math.max(0, Math.min(speed, maxSpeed));
+
+            // Steering
+            if (speed > 0.1) {
+                if (keys.a) carRotation += currentTurnSpeed;
+                if (keys.d) carRotation -= currentTurnSpeed;
+            }
+            
+            // Auto-center steering when not pressing keys
+            if (!keys.a && !keys.d) {
+                carRotation *= 0.95; 
+            }
+
+            // Apply Grip (Velocity vector follows car rotation smoothly)
+            steeringAngle += (carRotation - steeringAngle) * grip;
+
+            // Move the car left/right based on steering angle
+            carGroup.position.x -= Math.sin(steeringAngle) * speed;
+            
+            // Apply visual rotation to the 3D model
+            carGroup.rotation.y = carRotation;
+
+            // Spin the wheels visually
+            wheels.forEach(w => w.rotation.x -= speed * 0.5);
+            // Turn front wheels
+            wheels[0].rotation.z = carRotation * 1.5;
+            wheels[1].rotation.z = carRotation * 1.5;
+
+            // Move the track to simulate forward movement
+            let zMovement = Math.cos(steeringAngle) * speed;
+            distanceTraveled += zMovement;
+
+            lines.forEach(line => {
+                line.position.z += zMovement;
+                // If line goes behind camera, wrap it far ahead
+                if (line.position.z > 20) {
+                    line.position.z -= 400;
+                }
+            });
+
+            // Update Skid marks
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.mesh.position.z += zMovement; // Move with the ground
+                p.life -= 0.01;
+                p.mesh.material.opacity = p.life;
+                if (p.life <= 0 || p.mesh.position.z > 20) {
+                    scene.remove(p.mesh);
+                    particles.splice(i, 1);
+                }
+            }
+
+            // Camera follow (3rd person)
+            // Camera targets a spot behind and above the car
+            const targetX = carGroup.position.x + Math.sin(carRotation) * 10;
+            const targetY = 4 + (speed * 0.5); // Pull back/up when fast
+            const targetZ = carGroup.position.z + 12 + (speed * 1.5);
+
+            camera.position.x += (targetX - camera.position.x) * 0.1;
+            camera.position.y += (targetY - camera.position.y) * 0.1;
+            camera.position.z += (targetZ - camera.position.z) * 0.1;
+            camera.lookAt(carGroup.position.x, carGroup.position.y, carGroup.position.z - 10);
+
+            // Update UI
+            uiSpeed.innerText = Math.floor(speed * 110); // Fake KM/H multiplier
+            uiDist.innerText = Math.floor(distanceTraveled);
+
+            renderer.render(scene, camera);
+        }
+
+        // Handle Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start!
+        animate();
+    </script>
+</body>
+</html>

@@ -132,10 +132,9 @@
             let numAttacks = phase + 1; 
 
             for (let a = 0; a < numAttacks; a++) {
-                let type = Math.floor(Math.random() * 21) + 1; // Updated to 21 attacks
+                let type = Math.floor(Math.random() * 21) + 1; 
                 let cx = canvas.width/2; let cy = canvas.height/2;
 
-                // Keep attacks mostly inside the shrinking arena
                 let rx = arena.x + Math.random() * arena.w;
                 let ry = arena.y + Math.random() * arena.h;
 
@@ -200,23 +199,17 @@
                     case 20: 
                         spawnZone('blender', { angle: Math.random()*Math.PI, life: 200 }); break;
                     case 21:
-                        spawnZone('spikes', { life: 200 }); break; // NEW SPIKES ATTACK
+                        spawnZone('spikes', { life: 200 }); break; 
                 }
             }
         }
 
         function update() {
-            // Shrinking Arena Logic
-            let shrinkProgress = Math.min(1, score / 100);
-            let maxPaddingX = canvas.width * 0.35; // Shrinks up to 35% horizontally
-            let maxPaddingY = canvas.height * 0.35; // Shrinks up to 35% vertically
-            let padX = maxPaddingX * shrinkProgress;
-            let padY = maxPaddingY * shrinkProgress;
-            
-            arena.x = padX;
-            arena.y = padY;
-            arena.w = canvas.width - (padX * 2);
-            arena.h = canvas.height - (padY * 2);
+            // Keep the arena full size at all times
+            arena.x = 0;
+            arena.y = 0;
+            arena.w = canvas.width;
+            arena.h = canvas.height;
 
             if (score >= 100 && !winState) {
                 winState = true;
@@ -274,7 +267,6 @@
                     dashTrails.push({ x: player.x, y: player.y, r: player.r, life: 30, color: 'rgba(255,165,0,0.8)' });
                 }
 
-                // Keep player strictly inside the shrinking arena
                 if (player.x < arena.x + player.r) { player.x = arena.x + player.r; player.vx = 0; }
                 if (player.x > arena.x + arena.w - player.r) { player.x = arena.x + arena.w - player.r; player.vx = 0; }
                 if (player.y < arena.y + player.r) { player.y = arena.y + player.r; player.vy = 0; }
@@ -309,7 +301,6 @@
                     } else if (p.type === 'bouncy') {
                         p.x += p.vx; p.y += p.vy;
                         p.angle += p.spinSpeed; 
-                        // Bouncy bullets bounce off the arena walls now!
                         if (p.x < arena.x || p.x > arena.x + arena.w) { p.vx *= -1; p.bounces--; }
                         if (p.y < arena.y || p.y > arena.y + arena.h) { p.vy *= -1; p.bounces--; }
                         if (p.bounces <= 0) projs.splice(i, 1);
@@ -408,7 +399,7 @@
                     } else if (z.type === 'spikes') {
                         z.life--; if(z.life <= 0) zones.splice(i, 1);
                         if (z.timer <= 0) {
-                            let spikeDepth = 60; // How far spikes jut out
+                            let spikeDepth = 60;
                             if (player.x < arena.x + spikeDepth || player.x > arena.x + arena.w - spikeDepth ||
                                 player.y < arena.y + spikeDepth || player.y > arena.y + arena.h - spikeDepth) {
                                 die();
@@ -471,17 +462,6 @@
         function draw() {
             ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw darkened area outside the shrinking arena
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'; 
-            ctx.fillRect(0, 0, canvas.width, arena.y); // Top
-            ctx.fillRect(0, arena.y + arena.h, canvas.width, canvas.height - (arena.y + arena.h)); // Bottom
-            ctx.fillRect(0, arena.y, arena.x, arena.h); // Left
-            ctx.fillRect(arena.x + arena.w, arena.y, canvas.width - (arena.x + arena.w), arena.h); // Right
-            
-            // Draw neon arena border
-            ctx.strokeStyle = '#f97316'; ctx.lineWidth = 3;
-            ctx.strokeRect(arena.x, arena.y, arena.w, arena.h);
-
             for (let o of bgOranges) {
                 ctx.fillStyle = `rgba(255,136,0,${0.02 * o.parallax})`;
                 ctx.beginPath();
@@ -542,7 +522,6 @@
                     ctx.fillStyle = z.timer>0 ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.8)';
                     ctx.fillRect(0, z.y, canvas.width, z.h);
                 } else if (z.type === 'blackhole') {
-                    // Upgraded Orange Black Hole
                     ctx.fillStyle = z.timer>0 ? 'rgba(234,88,12,0.3)' : '#ea580c';
                     let bhRadius = 40 + Math.sin(frame*0.2)*10;
                     ctx.beginPath(); ctx.arc(z.x, z.y, bhRadius, 0, Math.PI*2); ctx.fill();

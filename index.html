@@ -563,7 +563,7 @@
                 } else if (z.type === 'lava') {
                     ctx.fillStyle = z.timer>0 ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.8)'; ctx.fillRect(0, z.y, canvas.width, z.h);
                 } else if (z.type === 'blackhole') {
-                    ctx.fillStyle = z.timer>0 ? 'rgba(147,51,234,0.3)' : '#eacc33';
+                    ctx.fillStyle = z.timer>0 ? 'rgba(255, 0, 0, 0.5)' : '#eacc33';
                     ctx.beginPath(); ctx.arc(z.x, z.y, 40 + Math.sin(frame*0.2)*10, 0, Math.PI*2); ctx.fill();
                 } else if (z.type === 'minion') { 
                     ctx.save(); ctx.translate(z.x, z.y); ctx.rotate(z.angle); ctx.fillStyle = '#f97316';

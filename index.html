@@ -129,7 +129,13 @@
             return pool;
         }
         function stageNumber(s) { return Math.min(5, Math.floor(s / 20) + 1); }
-        function warnFrames() { return mode === 'hard' ? 50 : 80; }
+
+        // Face phase: hard mode always uses the final easy face
+        function currentPhase() {
+            return mode === 'hard' ? 4 : Math.min(4, Math.floor(score / 20));
+        }
+
+        function warnFrames() { return mode === 'hard' ? 40 : 65; }
         function updateStageUI() {
             stageEl.innerText = mode === 'easy' ? 'stage ' + stageNumber(score) : 'hard mode';
         }
@@ -441,13 +447,13 @@
                     break;
                 }
                 case 28: {
-                    // Eight saw blades in random directions
+                    // Eight big saw blades in random directions
                     const angs = [];
                     for (let i = 0; i < 8; i++) angs.push(Math.random() * TWO_PI);
                     queueAttack(W, () => {
                         for (const a of angs) markLine(cx, cy, cx + Math.cos(a) * 400, cy + Math.sin(a) * 400);
                     }, () => {
-                        for (const a of angs) spawnProj(cx, cy, Math.cos(a) * 5, Math.sin(a) * 5, 22, 'saw', { angle: 0 });
+                        for (const a of angs) spawnProj(cx, cy, Math.cos(a) * 5, Math.sin(a) * 5, SAW_R, 'saw', { angle: 0 });
                     });
                     break;
                 }
@@ -455,6 +461,8 @@
                     break;
             }
         }
+
+        const SAW_R = 34;   // saw blade radius (was 22)
 
         // ================= Update =================
         function update() {
@@ -482,11 +490,17 @@
 
                 if (keys.space && player.dashCooldown <= 0 && !isTethered) {
                     let dx = 0, dy = 0;
-                    if (keys.a) dx -= 1;
-                    if (keys.d) dx += 1;
-                    if (keys.w) dy -= 1;
-                    if (keys.s) dy += 1;
-                    if (dx === 0 && dy === 0) dx = player.x > boss.x ? 1 : -1;
+                    const falling = player.vy > 0.5;
+                    if (falling) {
+                        // Falling: teleport straight down
+                        dx = 0; dy = 1;
+                    } else {
+                        if (keys.a) dx -= 1;
+                        if (keys.d) dx += 1;
+                        if (keys.w) dy -= 1;
+                        if (keys.s) dy += 1;
+                        if (dx === 0 && dy === 0) dx = player.x > boss.x ? 1 : -1;
+                    }
 
                     const dist = Math.hypot(dx, dy);
                     if (dist > 0) {
@@ -526,7 +540,7 @@
                 attackTimer--;
                 if (attackTimer <= 0) {
                     triggerAttack();
-                    attackTimer = Math.max(50, 150 - (score * 2));
+                    attackTimer = Math.max(40, 115 - score * 1.5);   // faster than before
                 }
 
                 // Advance warnings; fire any that finished
@@ -790,14 +804,14 @@
             ctx.translate(x, y); ctx.rotate(a);
             ctx.fillStyle = '#f97316';
             ctx.beginPath();
-            for (let i = 0; i < 12; i++) {
-                const ang = (i / 12) * TWO_PI;
-                const rad = (i % 2 === 0) ? r : r * 0.7;
+            for (let i = 0; i < 16; i++) {
+                const ang = (i / 16) * TWO_PI;
+                const rad = (i % 2 === 0) ? r : r * 0.78;
                 ctx.lineTo(Math.cos(ang) * rad, Math.sin(ang) * rad);
             }
             ctx.closePath(); ctx.fill();
             ctx.fillStyle = '#0f172a';
-            ctx.beginPath(); ctx.arc(0, 0, r * 0.3, 0, TWO_PI); ctx.fill();
+            ctx.beginPath(); ctx.arc(0, 0, r * 0.28, 0, TWO_PI); ctx.fill();
             ctx.restore();
         }
 
@@ -819,18 +833,18 @@
                 ctx.beginPath(); ctx.arc(trail.x, trail.y, trail.r, 0, TWO_PI); ctx.fill();
             }
 
-            const phase = Math.min(4, Math.floor(score / 20));
+            const phase = currentPhase();
 
-            // Warnings for attacks that haven't fired yet
+            // Warnings: steady soft glow, no flashing
             for (const w of pending) {
                 const prog = 1 - w.timer / w.max;
-                const pulse = 0.35 + 0.35 * Math.abs(Math.sin(w.timer * 0.25));
                 ctx.save();
-                ctx.strokeStyle = `rgba(255,136,0,${pulse})`;
-                ctx.fillStyle = `rgba(255,136,0,${pulse * 0.25})`;
-                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(255,136,0,0.4)';
+                ctx.fillStyle = 'rgba(255,136,0,0.1)';
+                ctx.lineWidth = 2.5;
                 ctx.setLineDash([12, 10]);
-                ctx.shadowBlur = 0;
+                ctx.shadowBlur = 14;
+                ctx.shadowColor = 'rgba(255,136,0,0.5)';
                 w.draw(prog);
                 ctx.restore();
             }

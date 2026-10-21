@@ -10,15 +10,16 @@
         #ui { position: absolute; top: 20px; left: 20px; font-size: 2rem; color: #ff8800; font-weight: bold; text-shadow: 0 0 10px #ff8800; }
         #high-ui { font-size: 1.2rem; color: #cbd5e1; text-shadow: none; font-weight: normal; }
         #sub-ui { font-size: 1rem; color: #cbd5e1; text-shadow: none; font-weight: normal; margin-top: 4px; }
-        #menu, #game-over, #gg-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
+        #menu, #game-over, #gg-screen, #easy-end { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
         h1 { font-size: 4rem; color: #ff8800; margin: 0 0 10px 0; text-shadow: 0 0 20px #ff8800; }
         p { color: #cbd5e1; font-size: 1.2rem; margin-bottom: 30px; text-align: center; max-width: 600px; line-height: 1.5; }
         .small { font-size: 0.95rem; margin: 20px 0 0 0; }
         .highlight { color: #f97316; font-weight: bold; }
         .btns { display: flex; gap: 24px; }
+        .box { border: 2px solid #ff8800; border-radius: 12px; padding: 18px 36px; margin-bottom: 30px; box-shadow: 0 0 20px rgba(255,136,0,0.5); }
         button { background: #ff8800; color: #0f172a; border: none; padding: 15px 40px; font-size: 1.5rem; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 0 15px #ff8800; transition: transform 0.1s; text-transform: lowercase; }
         button:hover { transform: scale(1.05); }
-        #game-over, #gg-screen { display: none; }
+        #game-over, #gg-screen, #easy-end { display: none; }
     </style>
 </head>
 <body>
@@ -37,6 +38,14 @@
         <div class="btns">
             <button id="easy-btn">easy</button>
             <button id="hard-btn">hard</button>
+        </div>
+    </div>
+
+    <div id="easy-end">
+        <h1>easy cleared</h1>
+        <div class="box"><p style="margin:0; font-size:1.6rem; color:#ff8800;">now beat hard mode</p></div>
+        <div class="btns">
+            <button id="play-hard-btn">play hard</button>
         </div>
     </div>
 
@@ -79,6 +88,7 @@
 
         let isPlaying = false, winState = false, frame = 0, score = 0, attackTimer = 100;
         let mode = 'easy';
+        let loopToken = 0;
         const keys = { w: false, a: false, s: false, d: false, space: false };
 
         window.addEventListener('keydown', e => {
@@ -111,12 +121,12 @@
         let minis = [];     // small oranges
 
         // Attack pools
-        const ALL_ATTACKS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28];
+        const ALL_ATTACKS = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32];
         const STAGE_POOLS = [
-            [3, 22],                 // stage 1: basic lasers, spikes
+            [3, 22, 11, 29, 30, 31], // stage 1: lasers, spikes, diagonal lasers, bouncing box, closing walls, spear
             [2, 5, 6, 8, 12, 13, 14],// stage 2: projectiles
             [19, 23, 21],            // stage 3: black holes, grid frame, minions
-            [25, 24],                // stage 4: vine, big wall
+            [25, 24, 32],            // stage 4: vine, big wall, beam launchers
             [26, 27, 28]             // stage 5: giant ring, mini oranges, saws
         ];
 
@@ -155,14 +165,30 @@
 
         document.getElementById('easy-btn').addEventListener('click', () => startGame('easy'));
         document.getElementById('hard-btn').addEventListener('click', () => startGame('hard'));
+        document.getElementById('play-hard-btn').addEventListener('click', () => startGame('hard'));
+
+        // Clears everything so a new run can start without reloading the page
+        function resetAll() {
+            projs = []; zones = []; particles = []; dashTrails = [];
+            pending = []; rings = []; minis = [];
+            score = 0; attackTimer = 100; frame = 0; winState = false;
+            scoreEl.innerText = 0;
+            boss.r = 60; boss.pulseTimer = 0;
+            boss.x = canvas.width / 2; boss.y = canvas.height / 2;
+            player.x = canvas.width / 4; player.y = canvas.height / 2;
+            player.vx = 0; player.vy = 0; player.ghost = 0;
+            player.dashCooldown = 0; player.pulseTimer = 0; player.angle = 0;
+        }
 
         function startGame(m) {
             mode = m;
+            resetAll();
             document.getElementById('menu').style.display = 'none';
-            player.x = canvas.width / 4; player.y = canvas.height / 2;
+            document.getElementById('easy-end').style.display = 'none';
             isPlaying = true;
             updateStageUI();
-            gameLoop();
+            loopToken++;
+            gameLoop(loopToken);
         }
 
         function saveHighScore() {
@@ -215,6 +241,16 @@
                 const a = a0 + (j / n) * TWO_PI;
                 markLine(x, y, x + Math.cos(a) * len, y + Math.sin(a) * len);
             }
+        }
+
+        // Rectangle covering one whole side, 'len' pixels deep.
+        // side: 0 = left, 1 = right, 2 = top, 3 = bottom
+        function spearRect(side, len) {
+            const W = canvas.width, H = canvas.height;
+            if (side === 0) return { x: 0, y: 0, w: len, h: H };
+            if (side === 1) return { x: W - len, y: 0, w: len, h: H };
+            if (side === 2) return { x: 0, y: 0, w: W, h: len };
+            return { x: 0, y: H - len, w: W, h: len };
         }
 
         // ================= Attacks =================
@@ -290,13 +326,14 @@
                     queueAttack(W, () => markCircle(cx, cy, 80), () => spawnZone('supernova', { x: cx, y: cy, r: 80 }));
                     break;
                 case 8: {
+                    // Dotted wall from the side with a gap
                     const gap = Math.random() * (canvas.height - 200) + 100;
                     const fromRight = Math.random() > 0.5;
                     const sx = fromRight ? canvas.width : 0;
                     const vx = fromRight ? -7 : 7;
                     queueAttack(W, () => {
-                        ctx.fillRect(sx - 12, 0, 24, Math.max(0, gap - 80));
-                        ctx.fillRect(sx - 12, gap + 80, 24, Math.max(0, canvas.height - gap - 80));
+                        for (let y = 0; y < canvas.height; y += 30) if (Math.abs(y - gap) > 80) markCircle(sx, y, 6);
+                        markLine(sx, gap, sx + (fromRight ? -180 : 180), gap);   // arrow showing the gap
                     }, () => {
                         for (let y = 0; y < canvas.height; y += 30) if (Math.abs(y - gap) > 80) spawnProj(sx, y, vx, 0, 12);
                     });
@@ -409,11 +446,16 @@
                     }, () => spawnZone('grid', { gap: 160, thickness: 40, state: 'active', timer: 20 }));
                     break;
                 case 24: {
+                    // Big wall sweeping across from one side (150 px thick)
                     const fromRight = Math.random() > 0.5;
                     const sx = fromRight ? canvas.width : 0;
                     const spd = (canvas.width / 90) * (fromRight ? -1 : 1);
-                    queueAttack(W, () => ctx.fillRect(sx - 120, 0, 240, canvas.height),
-                        () => spawnZone('sweeper', { x: sx, w: 240, speed: spd, state: 'active', timer: 0 }));
+                    queueAttack(W, () => {
+                        const x0 = Math.max(0, sx - 75), x1 = Math.min(canvas.width, sx + 75);
+                        ctx.strokeRect(x0, 0, x1 - x0, canvas.height);
+                        ctx.fillRect(x0, 0, x1 - x0, canvas.height);
+                        markLine(sx, canvas.height / 2, sx + (fromRight ? -220 : 220), canvas.height / 2);   // direction arrow
+                    }, () => spawnZone('sweeper', { x: sx, w: 150, speed: spd, state: 'active', timer: 0 }));
                     break;
                 }
                 case 25:
@@ -456,12 +498,69 @@
                     });
                     break;
                 }
+                case 29: {
+                    // Giant rectangle orange that bounces around the walls
+                    const bw = 170, bh = 120;
+                    queueAttack(W, () => ctx.strokeRect(cx - bw / 2, cy - bh / 2, bw, bh), () => {
+                        const ang = Math.random() * TWO_PI;
+                        spawnZone('bigBox', { x: cx, y: cy, w: bw, h: bh, vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6, life: 420 });
+                    });
+                    break;
+                }
+                case 30: {
+                    // Walls slowly close in from all four sides, with spikes
+                    const m = Math.min(canvas.width, canvas.height) * 0.3;
+                    queueAttack(W, () => ctx.strokeRect(m, m, canvas.width - 2 * m, canvas.height - 2 * m),
+                        () => spawnZone('enclose', { maxIn: m, life: 480, timer: 0 }));
+                    break;
+                }
+                case 31: {
+                    // Spear: a wall covers one whole side, holds, then pulls back
+                    const side = Math.floor(Math.random() * 4);
+                    queueAttack(W, () => {
+                        const r = spearRect(side, 240);
+                        ctx.strokeRect(r.x, r.y, r.w, r.h);
+                        ctx.fillRect(r.x, r.y, r.w, r.h);
+                    }, () => spawnZone('spear', { side, len: 0, target: 240, speed: 18, phase: 'in', timer: 0 }));
+                    break;
+                }
+                case 32: {
+                    // Ten thin launchers on random sides, each firing a beam across the screen
+                    const W2 = canvas.width, H2 = canvas.height;
+                    const shots = [];
+                    for (let i = 0; i < 10; i++) {
+                        const side = Math.floor(Math.random() * 4);
+                        const t = Math.random();
+                        let rect, x0, y0, x1, y1;
+                        if (side === 0 || side === 1) {
+                            rect = { x: side === 0 ? 0 : W2 - 16, y: t * (H2 - 120), w: 16, h: 120 };
+                            const my = rect.y + 60;
+                            if (side === 0) { x0 = 16; y0 = my; x1 = W2; y1 = my; }
+                            else { x0 = W2 - 16; y0 = my; x1 = 0; y1 = my; }
+                        } else {
+                            rect = { x: t * (W2 - 120), y: side === 2 ? 0 : H2 - 16, w: 120, h: 16 };
+                            const mx = rect.x + 60;
+                            if (side === 2) { x0 = mx; y0 = 16; x1 = mx; y1 = H2; }
+                            else { x0 = mx; y0 = H2 - 16; x1 = mx; y1 = 0; }
+                        }
+                        shots.push({ rect, x0, y0, x1, y1 });
+                    }
+                    queueAttack(W, () => {
+                        for (const s of shots) {
+                            ctx.strokeRect(s.rect.x, s.rect.y, s.rect.w, s.rect.h);
+                            markLine(s.x0, s.y0, s.x1, s.y1);
+                        }
+                    }, () => {
+                        for (const s of shots) spawnZone('beam', { x0: s.x0, y0: s.y0, x1: s.x1, y1: s.y1, thick: 14, timer: 30 });
+                    });
+                    break;
+                }
                 default:
                     break;
             }
         }
 
-        const SAW_R = 34;   // saw blade radius (was 22)
+        const SAW_R = 34;   // saw blade radius
 
         // ================= Update =================
         function update() {
@@ -473,7 +572,12 @@
                 for (let i = 0; i < 400; i++) {
                     particles.push({ x: boss.x, y: boss.y, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, r: Math.random() * 15 + 5, life: 3, color: Math.random() > 0.5 ? '#ff8800' : '#ea580c' });
                 }
-                setTimeout(() => { isPlaying = false; document.getElementById('gg-screen').style.display = 'flex'; }, 2500);
+                const wasEasy = (mode === 'easy');
+                setTimeout(() => {
+                    isPlaying = false;
+                    if (wasEasy) document.getElementById('easy-end').style.display = 'flex';
+                    else document.getElementById('gg-screen').style.display = 'flex';
+                }, 2500);
             }
 
             if (!winState) {
@@ -511,7 +615,7 @@
                         player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
                         player.vx = 0; player.vy = 0;
                         player.dashCooldown = 45;
-                        player.ghost = 20;   // brief intangibility so you can pass through rings
+                        player.ghost = 20;   // brief intangibility so you can pass through rings and spears
                         for (let step = 0; step <= 1; step += 0.1) dashTrails.push({ x: startX + (player.x - startX) * step, y: startY + (player.y - startY) * step, r: player.r, life: 30, color: 'rgba(255,165,0,0.8)' });
                         for (let i = 0; i < 15; i++) particles.push({ x: player.x, y: player.y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, r: 5, life: 1, color: '#facc15' });
                     }
@@ -539,7 +643,7 @@
                 attackTimer--;
                 if (attackTimer <= 0) {
                     triggerAttack();
-                    attackTimer = Math.max(40, 115 - score * 1.5);   // faster than before
+                    attackTimer = Math.max(40, 115 - score * 1.5);
                 }
 
                 // Advance warnings; fire any that finished
@@ -714,6 +818,45 @@
                             z.length -= 40;
                             if (z.length <= 0) { zones.splice(i, 1); continue; }
                         }
+                    } else if (z.type === 'bigBox') {
+                        // Giant rectangle bouncing around the walls
+                        z.life--;
+                        if (z.life <= 0) { zones.splice(i, 1); continue; }
+                        z.x += z.vx; z.y += z.vy;
+                        const hw = z.w / 2, hh = z.h / 2;
+                        if (z.x - hw < 0) { z.x = hw; z.vx = Math.abs(z.vx); }
+                        if (z.x + hw > canvas.width) { z.x = canvas.width - hw; z.vx = -Math.abs(z.vx); }
+                        if (z.y - hh < 0) { z.y = hh; z.vy = Math.abs(z.vy); }
+                        if (z.y + hh > canvas.height) { z.y = canvas.height - hh; z.vy = -Math.abs(z.vy); }
+                        const nearX = Math.max(z.x - hw, Math.min(player.x, z.x + hw));
+                        const nearY = Math.max(z.y - hh, Math.min(player.y, z.y + hh));
+                        if (Math.hypot(player.x - nearX, player.y - nearY) < player.r) die();
+                    } else if (z.type === 'enclose') {
+                        // Walls close in over 6 seconds, then the attack ends
+                        z.life--;
+                        if (z.life <= 0) { zones.splice(i, 1); continue; }
+                        const prog = Math.min(1, (480 - z.life) / 360);
+                        const L = z.maxIn * prog, sp = 30 * prog;
+                        if (player.x - player.r < L + sp || player.x + player.r > canvas.width - L - sp ||
+                            player.y - player.r < L + sp || player.y + player.r > canvas.height - L - sp) die();
+                    } else if (z.type === 'spear') {
+                        if (z.phase === 'in') {
+                            z.len = Math.min(z.target, z.len + z.speed);
+                            if (z.len >= z.target) { z.phase = 'hold'; z.timer = 70; }
+                        } else if (z.phase === 'hold') {
+                            if (z.timer <= 0) z.phase = 'out';
+                        } else {
+                            z.len -= z.speed * 1.5;
+                            if (z.len <= 0) { zones.splice(i, 1); continue; }
+                        }
+                        if (!player.ghost) {
+                            const r = spearRect(z.side, z.len);
+                            if (player.x + player.r > r.x && player.x - player.r < r.x + r.w &&
+                                player.y + player.r > r.y && player.y - player.r < r.y + r.h) die();
+                        }
+                    } else if (z.type === 'beam') {
+                        if (z.timer <= 0) { zones.splice(i, 1); continue; }
+                        if (distToSegment(player, { x: z.x0, y: z.y0 }, { x: z.x1, y: z.y1 }) < z.thick / 2 + player.r) die();
                     }
                 }
 
@@ -940,6 +1083,40 @@
                             ctx.beginPath(); ctx.arc(startX + (endX - startX) * t, startY + (endY - startY) * t, 7, 0, TWO_PI); ctx.fill();
                         }
                     }
+                } else if (z.type === 'bigBox') {
+                    const hw = z.w / 2, hh = z.h / 2;
+                    ctx.fillStyle = '#ea580c'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff8800';
+                    ctx.beginPath(); ctx.roundRect(z.x - hw, z.y - hh, z.w, z.h, 22); ctx.fill();
+                    ctx.shadowBlur = 0;
+                    drawFace(z.x, z.y, Math.min(hw, hh) * 0.8, phase);
+                } else if (z.type === 'enclose') {
+                    const prog = Math.min(1, (480 - z.life) / 360);
+                    const L = z.maxIn * prog, sp = 30 * prog;
+                    const W = canvas.width, H = canvas.height;
+                    ctx.fillStyle = '#7c2d12';
+                    ctx.fillRect(0, 0, W, L);
+                    ctx.fillRect(0, H - L, W, L);
+                    ctx.fillRect(0, 0, L, H);
+                    ctx.fillRect(W - L, 0, L, H);
+                    ctx.fillStyle = '#f97316';
+                    ctx.beginPath();
+                    for (let x = 0; x <= W; x += 36) {
+                        ctx.moveTo(x, L); ctx.lineTo(x + 18, L + sp); ctx.lineTo(x + 36, L);
+                        ctx.moveTo(x, H - L); ctx.lineTo(x + 18, H - L - sp); ctx.lineTo(x + 36, H - L);
+                    }
+                    for (let y = 0; y <= H; y += 36) {
+                        ctx.moveTo(L, y); ctx.lineTo(L + sp, y + 18); ctx.lineTo(L, y + 36);
+                        ctx.moveTo(W - L, y); ctx.lineTo(W - L - sp, y + 18); ctx.lineTo(W - L, y + 36);
+                    }
+                    ctx.fill();
+                } else if (z.type === 'spear') {
+                    const r = spearRect(z.side, z.len);
+                    ctx.fillStyle = '#ea580c'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800';
+                    ctx.fillRect(r.x, r.y, r.w, r.h); ctx.shadowBlur = 0;
+                } else if (z.type === 'beam') {
+                    ctx.strokeStyle = '#ff8800'; ctx.lineWidth = z.thick; ctx.shadowBlur = 15; ctx.shadowColor = '#ff8800';
+                    ctx.beginPath(); ctx.moveTo(z.x0, z.y0); ctx.lineTo(z.x1, z.y1); ctx.stroke();
+                    ctx.shadowBlur = 0;
                 }
             }
 
@@ -1018,8 +1195,12 @@
             return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
         }
 
-        function gameLoop() {
-            if (isPlaying) { update(); draw(); requestAnimationFrame(gameLoop); }
+        function gameLoop(token) {
+            if (isPlaying && token === loopToken) {
+                update();
+                draw();
+                requestAnimationFrame(() => gameLoop(token));
+            }
         }
     </script>
 </body>

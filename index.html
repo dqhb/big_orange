@@ -89,6 +89,7 @@
         let isPlaying = false, winState = false, frame = 0, score = 0, attackTimer = 100;
         let mode = 'easy';
         let loopToken = 0;
+        let lastAttacks = [];   // attack types used on the previous trigger
         const keys = { w: false, a: false, s: false, d: false, space: false };
 
         window.addEventListener('keydown', e => {
@@ -172,6 +173,7 @@
             projs = []; zones = []; particles = []; dashTrails = [];
             pending = []; rings = []; minis = [];
             score = 0; attackTimer = 100; frame = 0; winState = false;
+            lastAttacks = [];
             scoreEl.innerText = 0;
             boss.r = 60; boss.pulseTimer = 0;
             boss.x = canvas.width / 2; boss.y = canvas.height / 2;
@@ -254,6 +256,15 @@
         }
 
         // ================= Attacks =================
+        // Picks an attack that wasn't used on the last trigger and isn't already
+        // chosen for this trigger. Falls back gracefully if the pool is too small.
+        function pickAttack(pool, alsoAvoid) {
+            let candidates = pool.filter(t => !lastAttacks.includes(t) && !alsoAvoid.includes(t));
+            if (candidates.length === 0) candidates = pool.filter(t => !alsoAvoid.includes(t));
+            if (candidates.length === 0) candidates = pool;
+            return candidates[Math.floor(Math.random() * candidates.length)];
+        }
+
         function triggerAttack() {
             const pool = getPool(score);
             score++; scoreEl.innerText = score;
@@ -263,10 +274,13 @@
 
             const scale = Math.floor(score / 20);
             const num = score >= 50 ? 2 : 1;
+            const chosen = [];
             for (let a = 0; a < num; a++) {
-                const type = pool[Math.floor(Math.random() * pool.length)];
+                const type = pickAttack(pool, chosen);
+                chosen.push(type);
                 runAttack(type, scale);
             }
+            lastAttacks = chosen;
         }
 
         function runAttack(type, scale) {
@@ -1040,14 +1054,23 @@
                     ctx.beginPath(); ctx.arc(0, 0, z.r, 0, TWO_PI); ctx.fill();
                     drawFace(0, 0, z.r, phase); ctx.restore();
                 } else if (z.type === 'spikes') {
+                    // Each edge is filled separately. Filling all four edges as one path
+                    // made the overlapping corners cancel out and look hollow.
                     ctx.fillStyle = '#f97316'; ctx.shadowBlur = 10; ctx.shadowColor = '#f97316';
-                    const curLen = z.length, bw = 60;
+                    const L = z.length, bw = 60, W = canvas.width, H = canvas.height;
                     ctx.beginPath();
-                    for (let x = 0; x <= canvas.width; x += bw) { ctx.moveTo(x, 0); ctx.lineTo(x + bw / 2, curLen); ctx.lineTo(x + bw, 0); }
-                    for (let x = 0; x <= canvas.width; x += bw) { ctx.moveTo(x, canvas.height); ctx.lineTo(x + bw / 2, canvas.height - curLen); ctx.lineTo(x + bw, canvas.height); }
-                    for (let y = 0; y <= canvas.height; y += bw) { ctx.moveTo(0, y); ctx.lineTo(curLen, y + bw / 2); ctx.lineTo(0, y + bw); }
-                    for (let y = 0; y <= canvas.height; y += bw) { ctx.moveTo(canvas.width, y); ctx.lineTo(canvas.width - curLen, y + bw / 2); ctx.lineTo(canvas.width, y + bw); }
-                    ctx.fill(); ctx.shadowBlur = 0;
+                    for (let x = 0; x < W; x += bw) { ctx.moveTo(x, 0); ctx.lineTo(x + bw / 2, L); ctx.lineTo(x + bw, 0); }
+                    ctx.fill();
+                    ctx.beginPath();
+                    for (let x = 0; x < W; x += bw) { ctx.moveTo(x, H); ctx.lineTo(x + bw / 2, H - L); ctx.lineTo(x + bw, H); }
+                    ctx.fill();
+                    ctx.beginPath();
+                    for (let y = 0; y < H; y += bw) { ctx.moveTo(0, y); ctx.lineTo(L, y + bw / 2); ctx.lineTo(0, y + bw); }
+                    ctx.fill();
+                    ctx.beginPath();
+                    for (let y = 0; y < H; y += bw) { ctx.moveTo(W, y); ctx.lineTo(W - L, y + bw / 2); ctx.lineTo(W, y + bw); }
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
                 } else if (z.type === 'grid') {
                     ctx.fillStyle = '#ff8800'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff8800';
                     for (let x = 0; x <= canvas.width; x += z.gap) ctx.fillRect(x - z.thickness / 2, 0, z.thickness, canvas.height);

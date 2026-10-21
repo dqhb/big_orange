@@ -89,7 +89,9 @@
         let isPlaying = false, winState = false, frame = 0, score = 0, attackTimer = 100;
         let mode = 'easy';
         let loopToken = 0;
-        let lastAttacks = [];   // attack types used on the previous trigger
+        let lastAttacks = [];         // attack types used on the previous trigger
+        let encloseLastScore = -999;  // score when the closing walls last fired
+        let spoutQueue = [];          // spouts waiting to launch
         const keys = { w: false, a: false, s: false, d: false, space: false };
 
         window.addEventListener('keydown', e => {
@@ -117,6 +119,7 @@
         let particles = [];
         let dashTrails = [];
         let bgOranges = [];
+        let blobs = [];
         let pending = [];   // attacks in their warning phase
         let rings = [];     // expanding rings (giant ring and mini oranges' rings)
         let minis = [];     // small oranges
@@ -130,6 +133,12 @@
             [25, 24, 32],            // stage 4: vine, big wall, beam launchers
             [26, 27, 28]             // stage 5: giant ring, mini oranges, saws
         ];
+
+        const ENCLOSE_ID = 30;          // closing walls attack
+        const ENCLOSE_COOLDOWN = 7;     // attacks that must pass before it can fire again
+        const ENCLOSE_SPK = 26;         // spike tooth length on the closing walls
+        const SAW_R = 34;               // saw blade radius
+        const SPOUT_COUNT = 30;         // circles launched per attack
 
         function getPool(s) {
             if (mode === 'hard') return ALL_ATTACKS;
@@ -161,8 +170,66 @@
                 });
             }
         }
+
+        // Soft orange blobs that drift slowly behind everything (no faces)
+        function initBlobs() {
+            blobs = [];
+            for (let i = 0; i < 7; i++) {
+                blobs.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    r: 90 + Math.random() * 140,
+                    vx: (Math.random() - 0.5) * 0.35,
+                    vy: (Math.random() - 0.5) * 0.35,
+                    phase: Math.random() * TWO_PI,
+                    speed: 0.01 + Math.random() * 0.015
+                });
+            }
+        }
+
+        function updateBlobs() {
+            for (const b of blobs) {
+                b.x += b.vx; b.y += b.vy;
+                if (b.x < -b.r * 2) b.x = canvas.width + b.r * 2;
+                if (b.x > canvas.width + b.r * 2) b.x = -b.r * 2;
+                if (b.y < -b.r * 2) b.y = canvas.height + b.r * 2;
+                if (b.y > canvas.height + b.r * 2) b.y = -b.r * 2;
+            }
+        }
+
+        function drawBackground() {
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const ox = -(player.x - canvas.width / 2), oy = -(player.y - canvas.height / 2);
+
+            // Orange circles
+            for (const o of bgOranges) {
+                ctx.fillStyle = `rgba(255,136,0,${0.035 + 0.07 * o.parallax})`;
+                ctx.beginPath();
+                ctx.arc(o.x + ox * o.parallax, o.y + oy * o.parallax, o.r, 0, TWO_PI);
+                ctx.fill();
+            }
+
+            // Slow-moving orange blobs
+            ctx.fillStyle = 'rgba(255,136,0,0.06)';
+            for (const b of blobs) {
+                ctx.beginPath();
+                for (let i = 0; i <= 40; i++) {
+                    const a = (i / 40) * TWO_PI;
+                    const rr = b.r * (1 + 0.12 * Math.sin(3 * a + b.phase + frame * b.speed) + 0.08 * Math.sin(5 * a - frame * b.speed * 1.3));
+                    const px = b.x + ox * 0.05 + Math.cos(a) * rr;
+                    const py = b.y + oy * 0.05 + Math.sin(a) * rr;
+                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
         resize();
         initBgOranges();
+        initBlobs();
 
         document.getElementById('easy-btn').addEventListener('click', () => startGame('easy'));
         document.getElementById('hard-btn').addEventListener('click', () => startGame('hard'));
@@ -171,9 +238,10 @@
         // Clears everything so a new run can start without reloading the page
         function resetAll() {
             projs = []; zones = []; particles = []; dashTrails = [];
-            pending = []; rings = []; minis = [];
+            pending = []; rings = []; minis = []; spoutQueue = [];
             score = 0; attackTimer = 100; frame = 0; winState = false;
             lastAttacks = [];
+            encloseLastScore = -999;
             scoreEl.innerText = 0;
             boss.r = 60; boss.pulseTimer = 0;
             boss.x = canvas.width / 2; boss.y = canvas.height / 2;
@@ -219,6 +287,65 @@
             zones.push({ type, timer: 0, state: 'warn', ...extra });
         }
 
+        // ================= Spikes and collision helpers =================
+        // Builds spike teeth around a box. (inL, inT, inR, inB) are the wall's inner edges.
+        // Edge teeth stop 'corner' pixels short of each corner, and one 45-degree tooth
+        // sits in each corner, so no two teeth overlap.
+        function spikeTeeth(inL, inT, inR, inB, depth, pitch, corner) {
+            const tris = [];
+            const x0 = inL + corner, x1 = inR - corner;
+            const nX = Math.floor((x1 - x0) / pitch);
+            for (let i = 0; i < nX; i++) {
+                const x = x0 + i * pitch;
+                tris.push([x, inT, x + pitch / 2, inT + depth, x + pitch, inT]);
+                tris.push([x, inB, x + pitch / 2, inB - depth, x + pitch, inB]);
+            }
+            const y0 = inT + corner, y1 = inB - corner;
+            const nY = Math.floor((y1 - y0) / pitch);
+            for (let i = 0; i < nY; i++) {
+                const y = y0 + i * pitch;
+                tris.push([inL, y, inL + depth, y + pitch / 2, inL, y + pitch]);
+                tris.push([inR, y, inR - depth, y + pitch / 2, inR, y + pitch]);
+            }
+            const k = depth;
+            tris.push([inL + k * 0.5, inT, inL, inT + k * 0.5, inL + k * 0.7, inT + k * 0.7]);
+            tris.push([inR - k * 0.5, inT, inR, inT + k * 0.5, inR - k * 0.7, inT + k * 0.7]);
+            tris.push([inL + k * 0.5, inB, inL, inB - k * 0.5, inL + k * 0.7, inB - k * 0.7]);
+            tris.push([inR - k * 0.5, inB, inR, inB - k * 0.5, inR - k * 0.7, inB - k * 0.7]);
+            return tris;
+        }
+
+        // Fills each tooth separately so overlapping shapes never cancel out
+        function fillTeeth(tris) {
+            for (const t of tris) {
+                ctx.beginPath();
+                ctx.moveTo(t[0], t[1]);
+                ctx.lineTo(t[2], t[3]);
+                ctx.lineTo(t[4], t[5]);
+                ctx.closePath();
+                ctx.fill();
+            }
+        }
+
+        function pointInTri(px, py, t) {
+            const d1 = (px - t[2]) * (t[1] - t[3]) - (t[0] - t[2]) * (py - t[3]);
+            const d2 = (px - t[4]) * (t[3] - t[5]) - (t[2] - t[4]) * (py - t[5]);
+            const d3 = (px - t[0]) * (t[5] - t[1]) - (t[4] - t[0]) * (py - t[1]);
+            const neg = d1 < 0 || d2 < 0 || d3 < 0;
+            const pos = d1 > 0 || d2 > 0 || d3 > 0;
+            return !(neg && pos);
+        }
+
+        function triHit(px, py, r, t) {
+            if (pointInTri(px, py, t)) return true;
+            const pts = [[t[0], t[1]], [t[2], t[3]], [t[4], t[5]]];
+            for (let i = 0; i < 3; i++) {
+                const a = pts[i], b = pts[(i + 1) % 3];
+                if (distToSegment({ x: px, y: py }, { x: a[0], y: a[1] }, { x: b[0], y: b[1] }) < r) return true;
+            }
+            return false;
+        }
+
         // ================= Warning system =================
         // Every attack goes through queueAttack: draw() shows the warning
         // every frame, and fire() runs when the warning timer reaches 0.
@@ -255,14 +382,33 @@
             return { x: 0, y: H - len, w: W, h: len };
         }
 
-        // ================= Attacks =================
-        // Picks an attack that wasn't used on the last trigger and isn't already
-        // chosen for this trigger. Falls back gracefully if the pool is too small.
+        // ================= Attack picking =================
+        function encloseReady() {
+            return encloseLastScore < 0 || score - encloseLastScore > ENCLOSE_COOLDOWN;
+        }
+        function usable(t) {
+            return t !== ENCLOSE_ID || encloseReady();
+        }
+
+        // Picks an attack that wasn't used on the last trigger, isn't already chosen
+        // for this trigger, and isn't on cooldown. Falls back if the pool runs out.
         function pickAttack(pool, alsoAvoid) {
-            let candidates = pool.filter(t => !lastAttacks.includes(t) && !alsoAvoid.includes(t));
-            if (candidates.length === 0) candidates = pool.filter(t => !alsoAvoid.includes(t));
-            if (candidates.length === 0) candidates = pool;
-            return candidates[Math.floor(Math.random() * candidates.length)];
+            let c = pool.filter(t => usable(t) && !lastAttacks.includes(t) && !alsoAvoid.includes(t));
+            if (c.length === 0) c = pool.filter(t => usable(t) && !alsoAvoid.includes(t));
+            if (c.length === 0) c = pool.filter(usable);
+            if (c.length === 0) c = pool;
+            return c[Math.floor(Math.random() * c.length)];
+        }
+
+        function queueSpouts(n) {
+            for (let i = 0; i < n; i++) spoutQueue.push({ delay: Math.floor(Math.random() * 60) });
+        }
+
+        function spawnSpout() {
+            const x = Math.random() * canvas.width;
+            const speed = 13 + Math.random() * 6;
+            const ang = (Math.random() - 0.5) * 2;    // random angle, up to about 57 degrees from vertical
+            spawnProj(x, canvas.height + 10, Math.sin(ang) * speed, -Math.cos(ang) * speed, 7, 'spout');
         }
 
         function triggerAttack() {
@@ -278,9 +424,11 @@
             for (let a = 0; a < num; a++) {
                 const type = pickAttack(pool, chosen);
                 chosen.push(type);
+                if (type === ENCLOSE_ID) encloseLastScore = score;
                 runAttack(type, scale);
             }
             lastAttacks = chosen;
+            queueSpouts(SPOUT_COUNT);
         }
 
         function runAttack(type, scale) {
@@ -522,7 +670,7 @@
                     break;
                 }
                 case 30: {
-                    // Walls slowly close in from all four sides, with spikes
+                    // Walls slowly close in from all four sides, with spikes that move with them
                     const m = Math.min(canvas.width, canvas.height) * 0.3;
                     queueAttack(W, () => ctx.strokeRect(m, m, canvas.width - 2 * m, canvas.height - 2 * m),
                         () => spawnZone('enclose', { maxIn: m, life: 480, timer: 0 }));
@@ -574,14 +722,14 @@
             }
         }
 
-        const SAW_R = 34;   // saw blade radius
-
         // ================= Update =================
         function update() {
+            updateBlobs();
+
             if (score >= 100 && !winState) {
                 winState = true; boss.r = 0;
                 projs = []; zones = []; dashTrails = [];
-                pending = []; rings = []; minis = [];
+                pending = []; rings = []; minis = []; spoutQueue = [];
                 saveHighScore();
                 for (let i = 0; i < 400; i++) {
                     particles.push({ x: boss.x, y: boss.y, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, r: Math.random() * 15 + 5, life: 3, color: Math.random() > 0.5 ? '#ff8800' : '#ea580c' });
@@ -660,6 +808,15 @@
                     attackTimer = Math.max(40, 115 - score * 1.5);
                 }
 
+                // Launch queued spouts from the bottom
+                for (let i = spoutQueue.length - 1; i >= 0; i--) {
+                    spoutQueue[i].delay--;
+                    if (spoutQueue[i].delay <= 0) {
+                        spawnSpout();
+                        spoutQueue.splice(i, 1);
+                    }
+                }
+
                 // Advance warnings; fire any that finished
                 for (let i = pending.length - 1; i >= 0; i--) {
                     const w = pending[i];
@@ -702,6 +859,9 @@
                         }
                     } else if (p.type === 'saw') {
                         p.x += p.vx; p.y += p.vy; p.angle += 0.3;
+                    } else if (p.type === 'spout') {
+                        p.vy += player.gravity;          // same gravity as the player
+                        p.x += p.vx; p.y += p.vy;
                     } else {
                         p.x += p.vx; p.y += p.vy;
                     }
@@ -797,7 +957,10 @@
                         }
                     } else if (z.type === 'spikes') {
                         if (z.timer <= 0) { zones.splice(i, 1); continue; }
-                        if (player.x < z.length || player.x > canvas.width - z.length || player.y < z.length || player.y > canvas.height - z.length) die();
+                        const tris = spikeTeeth(0, 0, canvas.width, canvas.height, z.length, 60, z.length);
+                        for (const t of tris) {
+                            if (triHit(player.x, player.y, player.r, t)) { die(); break; }
+                        }
                     } else if (z.type === 'grid') {
                         if (z.timer <= 0) { zones.splice(i, 1); continue; }
                         let hit = false;
@@ -846,13 +1009,19 @@
                         const nearY = Math.max(z.y - hh, Math.min(player.y, z.y + hh));
                         if (Math.hypot(player.x - nearX, player.y - nearY) < player.r) die();
                     } else if (z.type === 'enclose') {
-                        // Walls close in over 6 seconds, then the attack ends
+                        // Walls close in over 6 seconds, then the attack ends.
+                        // Spike teeth start at the wall's inner edge, so they never overlap the wall.
                         z.life--;
                         if (z.life <= 0) { zones.splice(i, 1); continue; }
+                        const W = canvas.width, H = canvas.height;
                         const prog = Math.min(1, (480 - z.life) / 360);
-                        const L = z.maxIn * prog, sp = 30 * prog;
-                        if (player.x - player.r < L + sp || player.x + player.r > canvas.width - L - sp ||
-                            player.y - player.r < L + sp || player.y + player.r > canvas.height - L - sp) die();
+                        const L = z.maxIn * prog;
+                        if (player.x - player.r < L || player.x + player.r > W - L ||
+                            player.y - player.r < L || player.y + player.r > H - L) die();
+                        const tris = spikeTeeth(L, L, W - L, H - L, ENCLOSE_SPK, 36, ENCLOSE_SPK);
+                        for (const t of tris) {
+                            if (triHit(player.x, player.y, player.r, t)) { die(); break; }
+                        }
                     } else if (z.type === 'spear') {
                         if (z.phase === 'in') {
                             z.len = Math.min(z.target, z.len + z.speed);
@@ -893,7 +1062,8 @@
                     m.life--; m.cd--;
                     if (m.cd <= 0 && m.shots > 0) {
                         const a = Math.atan2(player.y - m.y, player.x - m.x);
-                        rings.push({ x: m.x, y: m.y, r: m.r, vx: Math.cos(a) * 2.2, vy: Math.sin(a) * 2.2, speed: 4, maxR: 260, thick: 16, color: '#facc15' });
+                        // Half-size rings: max radius 130 (was 260), thickness 8 (was 16), half the expansion speed
+                        rings.push({ x: m.x, y: m.y, r: m.r, vx: Math.cos(a) * 2.2, vy: Math.sin(a) * 2.2, speed: 2, maxR: 130, thick: 8, color: '#facc15' });
                         m.shots--; m.cd = 90;
                     }
                     if (Math.hypot(player.x - m.x, player.y - m.y) < m.r + player.r) die();
@@ -972,12 +1142,7 @@
         }
 
         function draw() {
-            ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            for (const o of bgOranges) {
-                ctx.fillStyle = `rgba(255,136,0,${0.02 * o.parallax})`;
-                ctx.beginPath(); ctx.arc(o.x - (player.x - canvas.width / 2) * o.parallax, o.y - (player.y - canvas.height / 2) * o.parallax, o.r, 0, TWO_PI); ctx.fill();
-            }
+            drawBackground();
 
             for (const p of particles) {
                 ctx.fillStyle = p.color || `rgba(255, 136, 0, ${p.life})`;
@@ -1054,22 +1219,9 @@
                     ctx.beginPath(); ctx.arc(0, 0, z.r, 0, TWO_PI); ctx.fill();
                     drawFace(0, 0, z.r, phase); ctx.restore();
                 } else if (z.type === 'spikes') {
-                    // Each edge is filled separately. Filling all four edges as one path
-                    // made the overlapping corners cancel out and look hollow.
+                    // Corner teeth are separate triangles, so nothing overlaps
                     ctx.fillStyle = '#f97316'; ctx.shadowBlur = 10; ctx.shadowColor = '#f97316';
-                    const L = z.length, bw = 60, W = canvas.width, H = canvas.height;
-                    ctx.beginPath();
-                    for (let x = 0; x < W; x += bw) { ctx.moveTo(x, 0); ctx.lineTo(x + bw / 2, L); ctx.lineTo(x + bw, 0); }
-                    ctx.fill();
-                    ctx.beginPath();
-                    for (let x = 0; x < W; x += bw) { ctx.moveTo(x, H); ctx.lineTo(x + bw / 2, H - L); ctx.lineTo(x + bw, H); }
-                    ctx.fill();
-                    ctx.beginPath();
-                    for (let y = 0; y < H; y += bw) { ctx.moveTo(0, y); ctx.lineTo(L, y + bw / 2); ctx.lineTo(0, y + bw); }
-                    ctx.fill();
-                    ctx.beginPath();
-                    for (let y = 0; y < H; y += bw) { ctx.moveTo(W, y); ctx.lineTo(W - L, y + bw / 2); ctx.lineTo(W, y + bw); }
-                    ctx.fill();
+                    fillTeeth(spikeTeeth(0, 0, canvas.width, canvas.height, z.length, 60, z.length));
                     ctx.shadowBlur = 0;
                 } else if (z.type === 'grid') {
                     ctx.fillStyle = '#ff8800'; ctx.shadowBlur = 15; ctx.shadowColor = '#ff8800';
@@ -1113,25 +1265,16 @@
                     ctx.shadowBlur = 0;
                     drawFace(z.x, z.y, Math.min(hw, hh) * 0.8, phase);
                 } else if (z.type === 'enclose') {
-                    const prog = Math.min(1, (480 - z.life) / 360);
-                    const L = z.maxIn * prog, sp = 30 * prog;
                     const W = canvas.width, H = canvas.height;
+                    const prog = Math.min(1, (480 - z.life) / 360);
+                    const L = z.maxIn * prog;
                     ctx.fillStyle = '#7c2d12';
                     ctx.fillRect(0, 0, W, L);
                     ctx.fillRect(0, H - L, W, L);
                     ctx.fillRect(0, 0, L, H);
                     ctx.fillRect(W - L, 0, L, H);
                     ctx.fillStyle = '#f97316';
-                    ctx.beginPath();
-                    for (let x = 0; x <= W; x += 36) {
-                        ctx.moveTo(x, L); ctx.lineTo(x + 18, L + sp); ctx.lineTo(x + 36, L);
-                        ctx.moveTo(x, H - L); ctx.lineTo(x + 18, H - L - sp); ctx.lineTo(x + 36, H - L);
-                    }
-                    for (let y = 0; y <= H; y += 36) {
-                        ctx.moveTo(L, y); ctx.lineTo(L + sp, y + 18); ctx.lineTo(L, y + 36);
-                        ctx.moveTo(W - L, y); ctx.lineTo(W - L - sp, y + 18); ctx.lineTo(W - L, y + 36);
-                    }
-                    ctx.fill();
+                    fillTeeth(spikeTeeth(L, L, W - L, H - L, ENCLOSE_SPK, 36, ENCLOSE_SPK));
                 } else if (z.type === 'spear') {
                     const r = spearRect(z.side, z.len);
                     ctx.fillStyle = '#ea580c'; ctx.shadowBlur = 20; ctx.shadowColor = '#ff8800';
@@ -1184,6 +1327,10 @@
                     ctx.beginPath(); ctx.arc(p.x, p.y + p.r * 0.1, p.r * 0.4, 0, Math.PI, false); ctx.stroke();
                 } else if (p.type === 'saw') {
                     drawSaw(p.x, p.y, p.r, p.angle);
+                } else if (p.type === 'spout') {
+                    // Plain orange circle, no face
+                    ctx.fillStyle = '#fb923c';
+                    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TWO_PI); ctx.fill();
                 } else {
                     ctx.fillStyle = p.type === 'homing' ? '#ef4444' : '#facc15';
                     ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TWO_PI); ctx.fill();

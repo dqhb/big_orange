@@ -73,6 +73,7 @@
         });
 
         const TWO_PI = Math.PI * 2;
+        const BG = '#0f172a';
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const scoreEl = document.getElementById('score-val');
@@ -91,7 +92,7 @@
         let loopToken = 0;
         let lastAttacks = [];         // attack types used on the previous trigger
         let encloseLastScore = -999;  // score when the closing walls last fired
-        let waves = [];               // shockwaves moving in from the screen edges
+        let shake = 0, shakeX = 0, shakeY = 0;
         const keys = { w: false, a: false, s: false, d: false, space: false };
 
         window.addEventListener('keydown', e => {
@@ -118,6 +119,7 @@
         let zones = [];
         let particles = [];
         let dashTrails = [];
+        let blasts = [];    // edge shockwave bursts (visual only)
         let pending = [];   // attacks in their warning phase
         let rings = [];     // expanding rings (giant ring and mini oranges' rings)
         let minis = [];     // small oranges
@@ -136,8 +138,7 @@
         const ENCLOSE_COOLDOWN = 7;     // attacks that must pass before it can fire again
         const ENCLOSE_SPK = 26;         // spike tooth length on the closing walls
         const SAW_R = 34;               // saw blade radius
-        const SHOCK_THICK = 40;         // thickness of the edge shockwave
-        const SHOCK_SPEED = 4.5;        // pixels per frame the shockwave moves inward
+        const BLAST_COUNT = 12;         // edge shockwaves per attack
 
         function getPool(s) {
             if (mode === 'hard') return ALL_ATTACKS;
@@ -167,10 +168,11 @@
         // Clears everything so a new run can start without reloading the page
         function resetAll() {
             projs = []; zones = []; particles = []; dashTrails = [];
-            pending = []; rings = []; minis = []; waves = [];
+            pending = []; rings = []; minis = []; blasts = [];
             score = 0; attackTimer = 100; frame = 0; winState = false;
             lastAttacks = [];
             encloseLastScore = -999;
+            shake = 0; shakeX = 0; shakeY = 0;
             scoreEl.innerText = 0;
             boss.r = 60; boss.pulseTimer = 0;
             boss.x = canvas.width / 2; boss.y = canvas.height / 2;
@@ -214,6 +216,55 @@
         // so they activate right after their warning phase ends.
         function spawnZone(type, extra = {}) {
             zones.push({ type, timer: 0, state: 'warn', ...extra });
+        }
+
+        // ================= Edge shockwaves =================
+        // Soft orange bursts from random points along all four edges. Visual only.
+        function spawnEdgeBlasts(n) {
+            const W = canvas.width, H = canvas.height;
+            for (let i = 0; i < n; i++) {
+                const side = Math.floor(Math.random() * 4);
+                let x, y;
+                if (side === 0) { x = 0; y = Math.random() * H; }
+                else if (side === 1) { x = W; y = Math.random() * H; }
+                else if (side === 2) { x = Math.random() * W; y = 0; }
+                else { x = Math.random() * W; y = H; }
+                blasts.push({
+                    x, y,
+                    maxR: 120 + Math.random() * 140,
+                    life: 0,
+                    max: 30 + Math.floor(Math.random() * 16),
+                    delay: Math.floor(Math.random() * 30)
+                });
+            }
+        }
+
+        function updateBlasts() {
+            for (let i = blasts.length - 1; i >= 0; i--) {
+                const b = blasts[i];
+                if (b.delay > 0) { b.delay--; continue; }
+                b.life++;
+                if (b.life >= b.max) blasts.splice(i, 1);
+            }
+        }
+
+        function drawBlasts() {
+            for (const b of blasts) {
+                if (b.delay > 0) continue;
+                const t = b.life / b.max;
+                const alpha = (1 - t) * 0.22;                 // light and faded
+                const r = b.maxR * (1 - Math.pow(1 - t, 3));  // fast start, slow end
+                const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+                g.addColorStop(0, `rgba(255,170,60,${alpha})`);
+                g.addColorStop(0.6, `rgba(255,120,0,${alpha * 0.5})`);
+                g.addColorStop(1, 'rgba(255,120,0,0)');
+                ctx.fillStyle = g;
+                ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, TWO_PI); ctx.fill();
+
+                ctx.strokeStyle = `rgba(255,136,0,${alpha * 1.4})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.9, 0, TWO_PI); ctx.stroke();
+            }
         }
 
         // ================= Spikes and collision helpers =================
@@ -311,31 +362,6 @@
             return { x: 0, y: H - len, w: W, h: len };
         }
 
-        // ================= Shockwave =================
-        // Warning outline on the screen edges, then an orange band moves in from all four sides.
-        function queueShockwave() {
-            queueAttack(warnFrames(), () => {
-                ctx.strokeRect(2, 2, canvas.width - 4, canvas.height - 4);
-            }, () => {
-                waves.push({ f: 0, thick: SHOCK_THICK, speed: SHOCK_SPEED });
-            });
-        }
-
-        function drawWaves() {
-            const W = canvas.width, H = canvas.height;
-            for (const w of waves) {
-                const a = Math.max(0, w.f - w.thick);   // outer edge of the band
-                ctx.save();
-                ctx.fillStyle = 'rgba(255,136,0,0.85)';
-                ctx.shadowBlur = 25; ctx.shadowColor = '#ff8800';
-                ctx.beginPath();
-                ctx.rect(a, a, W - 2 * a, H - 2 * a);
-                ctx.rect(w.f, w.f, W - 2 * w.f, H - 2 * w.f);   // inner edge, cut out with evenodd
-                ctx.fill('evenodd');
-                ctx.restore();
-            }
-        }
-
         // ================= Attack picking =================
         function encloseReady() {
             return encloseLastScore < 0 || score - encloseLastScore > ENCLOSE_COOLDOWN;
@@ -361,6 +387,10 @@
             player.pulseTimer = 20;
             boss.pulseTimer = 20;
 
+            // Edge shockwaves and a light screen shake
+            spawnEdgeBlasts(BLAST_COUNT);
+            shake = Math.max(shake, 4);
+
             const scale = Math.floor(score / 20);
             const num = score >= 50 ? 2 : 1;
             const chosen = [];
@@ -371,7 +401,6 @@
                 runAttack(type, scale);
             }
             lastAttacks = chosen;
-            queueShockwave();
         }
 
         function runAttack(type, scale) {
@@ -667,10 +696,18 @@
 
         // ================= Update =================
         function update() {
+            // Screen shake decays each frame
+            shake *= 0.85;
+            if (shake < 0.1) shake = 0;
+            shakeX = (Math.random() * 2 - 1) * shake;
+            shakeY = (Math.random() * 2 - 1) * shake;
+
+            updateBlasts();
+
             if (score >= 100 && !winState) {
                 winState = true; boss.r = 0;
                 projs = []; zones = []; dashTrails = [];
-                pending = []; rings = []; minis = []; waves = [];
+                pending = []; rings = []; minis = []; blasts = [];
                 saveHighScore();
                 for (let i = 0; i < 400; i++) {
                     particles.push({ x: boss.x, y: boss.y, vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40, r: Math.random() * 15 + 5, life: 3, color: Math.random() > 0.5 ? '#ff8800' : '#ea580c' });
@@ -718,7 +755,7 @@
                         player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
                         player.vx = 0; player.vy = 0;
                         player.dashCooldown = 45;
-                        player.ghost = 20;   // brief intangibility so you can pass through rings, spears and shockwaves
+                        player.ghost = 20;   // brief intangibility so you can pass through rings and spears
                         for (let step = 0; step <= 1; step += 0.1) dashTrails.push({ x: startX + (player.x - startX) * step, y: startY + (player.y - startY) * step, r: player.r, life: 30, color: 'rgba(255,165,0,0.8)' });
                         for (let i = 0; i < 15; i++) particles.push({ x: player.x, y: player.y, vx: (Math.random() - 0.5) * 8, vy: (Math.random() - 0.5) * 8, r: 5, life: 1, color: '#facc15' });
                     }
@@ -757,18 +794,6 @@
                         pending.splice(i, 1);
                         w.fire();
                     }
-                }
-
-                // Shockwaves move inward from the edges
-                const edgeHalf = Math.min(canvas.width, canvas.height) / 2;
-                for (let i = waves.length - 1; i >= 0; i--) {
-                    const w = waves[i];
-                    w.f += w.speed;
-                    if (w.f >= edgeHalf) { waves.splice(i, 1); continue; }
-                    // Distance from the player to the nearest screen edge
-                    const d = Math.min(player.x, canvas.width - player.x, player.y, canvas.height - player.y);
-                    const outer = Math.max(0, w.f - w.thick);
-                    if (!player.ghost && d + player.r > outer && d - player.r < w.f) die();
                 }
 
                 // Projectiles
@@ -1083,9 +1108,12 @@
         }
 
         function draw() {
-            // Plain background
-            ctx.fillStyle = '#0f172a';
+            // Plain background, drawn before the shake offset so no edges show
+            ctx.fillStyle = BG;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(shakeX, shakeY);
 
             for (const p of particles) {
                 ctx.fillStyle = p.color || `rgba(255, 136, 0, ${p.life})`;
@@ -1096,6 +1124,9 @@
                 ctx.fillStyle = `rgba(255, 165, 0, ${trail.life / 30})`;
                 ctx.beginPath(); ctx.arc(trail.x, trail.y, trail.r, 0, TWO_PI); ctx.fill();
             }
+
+            // Edge shockwaves
+            drawBlasts();
 
             const phase = currentPhase();
 
@@ -1229,9 +1260,6 @@
                 }
             }
 
-            // Shockwaves from the edges
-            drawWaves();
-
             // Expanding rings
             for (const rg of rings) {
                 ctx.strokeStyle = rg.color || '#ff8800';
@@ -1289,6 +1317,8 @@
                 drawFace(0, 0, player.r, 0);
                 ctx.restore();
             }
+
+            ctx.restore();
         }
 
         function createExhaust() {
